@@ -1,0 +1,64 @@
+{
+  "metadata": {
+    "source": "ECMWF SEAS5 via Copernicus Climate Data Store (CDS)",
+    "model": "SEAS5 \u2014 51 ensemble members",
+    "api_endpoint": "https://cds.climate.copernicus.eu",
+    "dataset": "seasonal-monthly-single-levels",
+    "global_coverage": true,
+    "resolution": "1\u00b0 x 1\u00b0 grid",
+    "generated_at": "2026-03-31T04:41:09.662207+00:00Z"
+  },
+  "inputs": {
+    "crop": "Maize",
+    "region": "Trans Nzoia, Kenya",
+    "latitude": 1.02,
+    "longitude": 35.0,
+    "start_date": "2026-03-01",
+    "end_date": "2026-05-30",
+    "forecast_months": 3
+  },
+  "variables_explained": {
+    "rainfall_mm": "Total precipitation for the month (mm), ensemble mean",
+    "tmax_c": "Maximum 2m temperature (\u00b0C), ensemble mean",
+    "tmin_c": "Minimum 2m temperature (\u00b0C), ensemble mean",
+    "above_normal_pct": "% probability rainfall will be above the historical 67th percentile",
+    "near_normal_pct": "% probability rainfall will be between 33rd and 67th percentile",
+    "below_normal_pct": "% probability rainfall will be below the historical 33rd percentile",
+    "dominant_category": "The most likely tercile category for the month"
+  },
+  "forecast": [
+    {
+      "month": "2026-03",
+      "lead_month": 1,
+      "rainfall_mm": 21.2,
+      "tmax_c": 31.1,
+      "tmin_c": 17.1,
+      "above_normal_pct": 15,
+      "near_normal_pct": 30,
+      "below_normal_pct": 55,
+      "dominant_category": "Below Normal"
+    },
+    {
+      "month": "2026-04",
+      "lead_month": 2,
+      "rainfall_mm": 56.6,
+      "tmax_c": 30.8,
+      "tmin_c": 17.6,
+      "above_normal_pct": 20,
+      "near_normal_pct": 45,
+      "below_normal_pct": 35,
+      "dominant_category": "Near Normal"
+    },
+    {
+      "month": "2026-05",
+      "lead_month": 3,
+      "rainfall_mm": 143.5,
+      "tmax_c": 28.6,
+      "tmin_c": 17.4,
+      "above_normal_pct": 35,
+      "near_normal_pct": 45,
+      "below_normal_pct": 20,
+      "dominant_category": "Near Normal"
+    }
+  ]
+}

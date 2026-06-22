@@ -1,0 +1,40 @@
+# =============================================================
+# Requirements — DSSAT Weather File Generator (All WSPs)
+# =============================================================
+# Install all:  pip install -r requirements.txt
+# WSP-specific installs noted inline
+# =============================================================
+
+# ── Core (required by ALL WSPs) ──────────────────────────────
+pandas
+numpy
+requests
+geopy
+
+# ── LLM / Chatbot (required by WSP chatbot files) ────────────
+langchain
+langchain-openai
+openai
+python-dotenv
+
+# ── WSP 1 — Open-Meteo (also used by WSP 4 NOAA GFS) ────────
+openmeteo-requests
+requests-cache
+retry-requests
+
+# ── WSP 2 — CHC CHIRPS-GEFS ──────────────────────────────────
+climateserv
+
+# ── WSP 3 — ECMWF Open Data ──────────────────────────────────
+ecmwf-opendata
+cfgrib
+xarray
+eccodes
+
+# ── WSP 3 — ECMWF C3S Seasonal (optional, MODE B only) ───────
+# cdsapi   # uncomment if using CDS seasonal mode
+
+# ── WSP 5 — IRI Data Library (seasonal OpenDAP mode) ─────────
+pydap
+netCDF4
+

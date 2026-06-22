@@ -1,0 +1,17 @@
+# Secrets
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.pyc
+venv/
+*.egg-info/
+
+# Caches / generated data
+.openmeteo_cache*
+*.sqlite
+
+# OS
+.DS_Store

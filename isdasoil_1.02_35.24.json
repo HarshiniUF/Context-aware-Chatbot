@@ -1,0 +1,112 @@
+{
+  "metadata": {
+    "latitude": 1.02,
+    "longitude": 35.24,
+    "requested_at": "2026-04-15T21:14:31.714090",
+    "source": "iSDAsoil API v2",
+    "coverage": "Africa only (30m resolution)",
+    "api_url": "https://api.isda-africa.com/isdasoil/v2/soilproperty"
+  },
+  "extracted_values": {
+    "soil_chemical": {
+      "carbon_organic": [
+        {
+          "depth": "0-20",
+          "value": 26.1,
+          "unit": "%",
+          "uncertainty": {
+            "lower": 22.7,
+            "upper": 30.0
+          }
+        }
+      ],
+      "ph": [
+        {
+          "depth": "0-20",
+          "value": 5.8,
+          "unit": "pH units",
+          "uncertainty": {
+            "lower": 5.7,
+            "upper": 5.9
+          }
+        }
+      ]
+    },
+    "soil_physical": {
+      "sand_content": [
+        {
+          "depth": "0-20",
+          "value": 29,
+          "unit": "%",
+          "uncertainty": {
+            "lower": 24.3,
+            "upper": 33.7
+          }
+        }
+      ],
+      "clay_content": [
+        {
+          "depth": "0-20",
+          "value": 39,
+          "unit": "%",
+          "uncertainty": {
+            "lower": 36.3,
+            "upper": 41.7
+          }
+        }
+      ],
+      "silt_content": [
+        {
+          "depth": "0-20",
+          "value": 23,
+          "unit": "%",
+          "uncertainty": {
+            "lower": 22.3,
+            "upper": 23.7
+          }
+        }
+      ]
+    },
+    "soil_nutrients": {
+      "nitrogen_total": [
+        {
+          "depth": "0-20",
+          "value": 2.2,
+          "unit": "g/kg or mg/kg",
+          "uncertainty": {
+            "lower": 1.7,
+            "upper": 2.8
+          }
+        }
+      ]
+    },
+    "fetch_status": {
+      "carbon_organic": "\u2705 fetched",
+      "nitrogen_total": "\u2705 fetched",
+      "ph": "\u2705 fetched",
+      "sand_content": "\u2705 fetched",
+      "clay_content": "\u2705 fetched",
+      "silt_content": "\u2705 fetched"
+    },
+    "location": {
+      "latitude": 1.02,
+      "longitude": 35.24
+    }
+  },
+  "interpretation": {
+    "location": {
+      "latitude": 1.02,
+      "longitude": 35.24
+    },
+    "soil_health_summary": "\u2713 Generally suitable, with specific optimizations needed",
+    "critical_factors": [
+      "Good organic matter: 2.61% at 0-20cm",
+      "Adequate nitrogen: 0.220%",
+      "Slightly acidic: pH 5.8 (consider lime if <5.8)"
+    ],
+    "recommendations": [],
+    "risk_flags": [],
+    "details": {}
+  },
+  "generated_at": "2026-04-15T21:14:37.298843"
+}
