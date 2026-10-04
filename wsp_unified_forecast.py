@@ -23,12 +23,16 @@ import re
 from datetime import datetime, timezone
 from typing import Dict, Tuple, List, Optional
 from wsp_config import (
-    get_llm, UNIFIED_PROMPT,
+    get_llm, UNIFIED_PROMPT, LLM_MODEL,
     DAILY_FORECAST_WSP, SEASONAL_FORECAST_WSP,
     DEFAULT_LATITUDE, DEFAULT_LONGITUDE, DEFAULT_LOCATION_NAME,
+    DEFAULT_TIMEZONE, DEFAULT_FARM_SCALE_HA,
     extract_crop_from_question, extract_date_from_question, extract_crop_and_date_json,
+    extract_location_from_question, _extract_crop_fallback, AllowedCrops,
     get_today_str, get_today_datetime
 )
+from typing import get_args
+from location_resolver import resolve_location
 from langchain_core.prompts import ChatPromptTemplate
 
 # ─────────────────────────────────────────────────────────────
@@ -793,25 +797,174 @@ def answer_with_weather(
             "soil_health_status": ""
         }
     
+    daily_weather_section = f"""
+DAILY WEATHER FORECAST:
+- Rainy event: {rain.get('has_rainy_event', False)}
+- Rainy days ahead: {rain.get('num_rainy_days', 0)}
+- Next rainy day: {rain.get('next_rainy_day') or 'No rain in forecast window'}
+- Peak rainfall: {rain.get('peak_rain_day', 'N/A')} ({rain.get('peak_rain_mm', 0)} mm)
+- Total rainfall: {rain.get('total_forecast_rain_mm', 0)} mm
+"""
     result = llm.invoke(UNIFIED_PROMPT.format_messages(
         farmer_context=json.dumps(farmer_context, indent=2),
         latitude=latitude,
         longitude=longitude,
-        today_date=datetime.now(timezone.utc).strftime("%Y-%m-%d"),
-        forecast_range=f"Next {forecast_days} days",
-        has_rain=rain["has_rainy_event"],
-        num_rainy_days=rain["num_rainy_days"],
-        next_rainy_day=rain["next_rainy_day"] or "No rain in forecast window",
-        total_rain_mm=rain["total_forecast_rain_mm"],
-        peak_rain_day=rain["peak_rain_day"],
-        peak_rain_mm=rain["peak_rain_mm"],
-        rainy_days_json="[]",
-        soil_data_summary=soil_vars.get("soil_data_summary", ""),
+        seasonal_category="",  # single mode: no seasonal forecast
+        soil_data_summary=soil_vars.get("soil_data_summary", "No soil data available"),
         soil_risk_flags=soil_vars.get("soil_risk_flags", ""),
         soil_recommendations=soil_vars.get("soil_recommendations", ""),
+        today_date=get_today_str(),
+        daily_weather_section=daily_weather_section,
+        user_question=user_question,
     ))
     
     return result.content.strip()
+
+# ─────────────────────────────────────────────────────────────
+# INPUT CONFIRMATION (location / crop / date shown before answering)
+# ─────────────────────────────────────────────────────────────
+QUIT_WORDS = ("quit", "exit", "q")
+SUPPORTED_CROPS = get_args(AllowedCrops)
+
+
+def _default_location(source: str = "project default") -> dict:
+    """Pinned default coordinates — never re-geocoded, so runs are reproducible."""
+    return {
+        "name": DEFAULT_LOCATION_NAME,
+        "latitude": DEFAULT_LATITUDE,
+        "longitude": DEFAULT_LONGITUDE,
+        "timezone": DEFAULT_TIMEZONE,
+        "precision": "pinned default point",
+        "source": source,
+    }
+
+
+def _is_default_location(place: str) -> bool:
+    normalize = lambda s: re.sub(r"[^a-z]", "", s.lower())
+    return normalize(place) == normalize(DEFAULT_LOCATION_NAME)
+
+
+def _choose_location(place: str, source: str) -> Optional[dict]:
+    """
+    Resolve a place name / coordinates via resolve_location().
+    Lets the user pick when the name is ambiguous, and requires an explicit pick
+    when only approximate (fuzzy) matches exist. Returns None if nothing usable.
+    """
+    resolved = resolve_location(place)
+    if not resolved["found"]:
+        print(f"   ⚠️  {resolved['error']}")
+        return None
+
+    chosen = resolved
+    if resolved["match"] != "coordinates" and (resolved["ambiguous"] or resolved["match"] == "approximate"):
+        exact = resolved["match"] == "exact"
+        if exact:
+            print(f"   📍 '{place}' matches {len(resolved['candidates'])} places:")
+        else:
+            print(f"   ⚠️  No exact match for '{place}'. Closest matches:")
+        for i, c in enumerate(resolved["candidates"], 1):
+            print(f"      {i}. {c['name']}  ({c['latitude']:.4f}, {c['longitude']:.4f})")
+        prompt = "   Pick a number (Enter = 1): " if exact else "   Pick a number, or press Enter to cancel: "
+        choice = input(prompt).strip()
+        if not choice:
+            if not exact:
+                return None
+        elif choice.isdigit() and 1 <= int(choice) <= len(resolved["candidates"]):
+            chosen = resolved["candidates"][int(choice) - 1]
+        else:
+            print("   ⚠️  Invalid choice.")
+            return None
+
+    return {
+        "name": chosen["name"],
+        "latitude": chosen["latitude"],
+        "longitude": chosen["longitude"],
+        "timezone": chosen.get("timezone"),
+        "precision": chosen["precision"],
+        "source": source,
+    }
+
+
+def _print_inputs(location: dict, crop: str, crop_source: str, context_date: str, date_source: str) -> None:
+    print("\n──────────────────────── INPUTS FOR THIS ANSWER ────────────────────────")
+    print(f"  Location   : {location['name']}  ({location['source']})")
+    print(f"  Coordinates: {location['latitude']:.4f}, {location['longitude']:.4f}"
+          f"  | precision: {location['precision']}  | timezone: {location.get('timezone') or 'unknown'}")
+    print(f"  Crop       : {crop}  ({crop_source})")
+    print(f"  Date       : {context_date}  ({date_source})")
+    print(f"  Farm size  : {DEFAULT_FARM_SCALE_HA} ha  (project default)")
+    if location["precision"] in ("country", "state/province"):
+        print("  ⚠️  Coarse location — soil and weather will be taken at its central point.")
+        print("     Give a town or 'lat, lon' for farm-specific data.")
+    print("─" * 72)
+
+
+def _normalize_crop(crop_text: str) -> Optional[str]:
+    """Map typed crop text to a supported crop name (keyword match first, then LLM for synonyms)."""
+    return _extract_crop_fallback(crop_text) or extract_crop_from_question(crop_text)
+
+
+def _confirm_or_update_inputs(question: str, crop: str, crop_source: str,
+                              context_date: str, date_source: str):
+    """
+    Show the inputs that will be used (with their source) and let the user change
+    the location and/or crop for this question.
+    Returns (location_dict, crop, crop_source), or None if the user quit.
+    """
+    location = None
+    try:
+        detected = extract_location_from_question(question)
+    except Exception:
+        detected = None
+        print("\n⚠️  Couldn't check your question for a location (LLM service unavailable).")
+        print("   If you named a place, type 'change' below to set it.")
+    if detected:
+        if _is_default_location(detected):
+            location = _default_location(source="from your question")
+        else:
+            print(f"\n📍 Location mentioned in your question: {detected}")
+            location = _choose_location(detected, source="from your question")
+            if location is None:
+                print(f"   Falling back to the default location ({DEFAULT_LOCATION_NAME}).")
+    if location is None:
+        location = _default_location()
+
+    _print_inputs(location, crop, crop_source, context_date, date_source)
+    reply = input("Press Enter to keep these, or type 'change' to update location or crop: ").strip().lower()
+    if reply in QUIT_WORDS:
+        return None
+    if reply != "change":
+        return location, crop, crop_source
+
+    # ── Location ──
+    while True:
+        new_place = input(f"\n📍 New location (place name or 'lat, lon'; Enter to keep '{location['name']}'): ").strip()
+        if not new_place:
+            break
+        if _is_default_location(new_place):
+            location = _default_location(source="you entered")
+            break
+        new_location = _choose_location(new_place, source="you entered")
+        if new_location:
+            location = new_location
+            break
+        print("   Try again, or press Enter to keep the current location.")
+
+    # ── Crop ──
+    new_crop = input(f"🌱 New crop (Enter to keep '{crop}'): ").strip()
+    if new_crop:
+        normalized = _normalize_crop(new_crop)
+        if normalized:
+            crop, crop_source = normalized, "you entered"
+        else:
+            print(f"   ⚠️  '{new_crop}' isn't one of the supported crops ({', '.join(SUPPORTED_CROPS)}).")
+            if input(f"   Use '{new_crop}' anyway? [y/N]: ").strip().lower() == "y":
+                crop, crop_source = new_crop.capitalize(), "you entered (unrecognized)"
+
+    print(f"✅ Using (this question only) Location: {location['name']} "
+          f"({location['latitude']:.4f}, {location['longitude']:.4f}), Crop: {crop}")
+    return location, crop, crop_source
+
 
 def run_chatbot(use_dual_forecast: bool = True):
     """
@@ -826,18 +979,17 @@ def run_chatbot(use_dual_forecast: bool = True):
         "region": DEFAULT_LOCATION_NAME,
         "latitude": DEFAULT_LATITUDE,
         "longitude": DEFAULT_LONGITUDE,
-        "scale_ha": 3.0,
+        "scale_ha": DEFAULT_FARM_SCALE_HA,
     }
-    lat, lon = farmer_context["latitude"], farmer_context["longitude"]
     
     print("=" * 70)
     print("  Agricultural Chatbot - Unified Forecast (Daily + Seasonal + Soil)")
     print("=" * 70)
-    print(f"  Location         : {farmer_context['region']}")
+    print(f"  Default location : {DEFAULT_LOCATION_NAME} ({DEFAULT_LATITUDE}, {DEFAULT_LONGITUDE})")
     print(f"  Daily Forecast   : {DAILY_FORECAST_WSP.upper()}")
     print(f"  Seasonal Forecast: {SEASONAL_FORECAST_WSP.upper()}")
     print(f"  Soil Data        : iSDAsoil API")
-    print(f"  LLM              : NaviGator API (UF) | Model: gpt-5")
+    print(f"  LLM              : NaviGator API (UF) | Model: {LLM_MODEL}")
     print(f"  Dual Forecast    : {'YES' if use_dual_forecast else 'NO'}")
     print("  Type 'quit' to exit.")
     print("=" * 70)
@@ -858,6 +1010,7 @@ def run_chatbot(use_dual_forecast: bool = True):
         date_source = extraction["date_source"]
         user_input_to_answer = user_input
 
+        crop_source = "from your question"
         if crop:
             farmer_context["crop"] = crop
             print(f"\n📌 Detected crop: {crop}")
@@ -875,27 +1028,43 @@ def run_chatbot(use_dual_forecast: bool = True):
             extraction2 = extract_crop_and_date_json(crop_input)
             crop = extraction2["extracted_crop"] if extraction2["extracted_crop"] else crop_input.capitalize()
             farmer_context["crop"] = crop
+            crop_source = "you entered"
             print(f"\n📌 Got it! Working with {crop}...")
             user_input_to_answer = user_input
 
-        print(f"🗓️  Context date: {context_date} (source: {date_source})")
         print(f"📝 Extraction JSON: {extraction}")
+
+        # Show the inputs being used (and their source); let the user change the location
+        date_label = "from your question" if date_source == "user_explicit" else "default: today"
+        confirmed = _confirm_or_update_inputs(user_input, crop, crop_source, context_date, date_label)
+        if confirmed is None:
+            print("Goodbye! 🌦️")
+            break
+        location, crop, crop_source = confirmed
+        farmer_context["crop"] = crop
+        lat, lon = location["latitude"], location["longitude"]
+        farmer_context.update({"region": location["name"], "latitude": lat, "longitude": lon})
 
         # Pass the extracted crop and date to the answer function via context
         # (If you want to inject date into context, update farmer_context or prompt as needed)
-        if use_dual_forecast:
-            print("⏳ Fetching DAILY, SEASONAL forecasts and SOIL data, generating answer...\n")
-            answer = answer_with_dual_forecast(
-                user_input_to_answer,
-                farmer_context,
-                lat,
-                lon,
-                seasonal_forecast_days=100,
-                forced_context_date=context_date,
-            )
-        else:
-            print("⏳ Fetching DAILY forecast and generating answer...\n")
-            answer = answer_with_weather(user_input_to_answer, farmer_context, lat, lon)
+        try:
+            if use_dual_forecast:
+                print("⏳ Fetching DAILY, SEASONAL forecasts and SOIL data, generating answer...\n")
+                answer = answer_with_dual_forecast(
+                    user_input_to_answer,
+                    farmer_context,
+                    lat,
+                    lon,
+                    seasonal_forecast_days=100,
+                    forced_context_date=context_date,
+                )
+            else:
+                print("⏳ Fetching DAILY forecast and generating answer...\n")
+                answer = answer_with_weather(user_input_to_answer, farmer_context, lat, lon)
+        except Exception as e:
+            # Keep the chat alive when the LLM service drops or times out
+            answer = (f"⚠️  Could not generate an answer: {type(e).__name__}: {e}\n"
+                      "   The LLM service (NaviGator) may be down or slow. Please try again.")
 
         print("─" * 70)
         print(answer)

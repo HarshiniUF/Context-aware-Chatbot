@@ -17,6 +17,9 @@ langchain-openai
 openai
 python-dotenv
 
+# ── MCP server for the agent tools (mcp_server.py) ──────────
+mcp[cli]>=2
+
 # ── WSP 1 — Open-Meteo (also used by WSP 4 NOAA GFS) ────────
 openmeteo-requests
 requests-cache

@@ -67,7 +67,3 @@ ans = answer_with_dual_forecast(q, {'crop':'Peanut','region':'Peanut Basin'}, 14
 print('answer length:', len(ans))
 PY
 ```
-
-Contact
--------
-If you want the policy changed (for example, always include providers for scenario dates), add a short config toggle or reach out to the code owner to discuss operator controls.

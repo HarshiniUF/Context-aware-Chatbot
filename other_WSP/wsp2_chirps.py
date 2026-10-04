@@ -18,7 +18,7 @@ import climateserv
 import json
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
-from wsp_config import get_llm, UNIFIED_PROMPT
+from wsp_config import get_llm, UNIFIED_PROMPT, LLM_MODEL
 
 # ─────────────────────────────────────────────────────────────
 # 1. CONFIGURATION
@@ -330,7 +330,7 @@ def run_chatbot():
     print("=" * 60)
     print(f"  Location : {farmer_context['region']}")
     print(f"  Crop     : {farmer_context['crop']}")
-    print(f"  LLM      : NaviGator API (UF) | Model: gpt-5")
+    print(f"  LLM      : NaviGator API (UF) | Model: {LLM_MODEL}")
     print(f"  Horizon  : {FORECAST_RANGE} (CHIRPS-GEFS daily, bias-corrected)")
     print("  Type 'quit' to exit.")
     print("=" * 60)

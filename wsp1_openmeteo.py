@@ -19,11 +19,11 @@ import openmeteo_requests
 import requests_cache
 import pandas as pd
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from retry_requests import retry
 from dotenv import load_dotenv
 from langchain_openai import ChatOpenAI
-from wsp_config import get_llm, UNIFIED_PROMPT
+from wsp_config import get_llm, UNIFIED_PROMPT, LLM_MODEL
 
 # ─────────────────────────────────────────────────────────────
 # 1. CONFIGURATION
@@ -61,10 +61,12 @@ def fetch_openmeteo_forecast(latitude: float, longitude: float, forecast_days: i
     # If start_date provided, request a window starting at start_date for provider_days
     try:
         if start_date:
-            from datetime import datetime
+            # Open-Meteo rejects start_date combined with forecast_days; it needs an end_date
             sd = datetime.strptime(start_date, "%Y-%m-%d").date()
             params["start_date"] = sd.strftime("%Y-%m-%d")
-        params["forecast_days"] = provider_days
+            params["end_date"] = (sd + timedelta(days=provider_days - 1)).strftime("%Y-%m-%d")
+        else:
+            params["forecast_days"] = provider_days
     except Exception:
         params["forecast_days"] = provider_days
 
@@ -76,12 +78,14 @@ def fetch_openmeteo_forecast(latitude: float, longitude: float, forecast_days: i
     except Exception:
         # If first attempt failed and we had requested a larger window, try with provider max days explicitly
         try:
-            params["forecast_days"] = PROVIDER_MAX_DAYS
+            if "start_date" not in params:
+                params["forecast_days"] = PROVIDER_MAX_DAYS
             response = client.weather_api("https://api.open-meteo.com/v1/forecast", params=params)[0]
         except Exception:
             # Final fallback: remove start_date and request the provider's recent window
             try:
                 params.pop("start_date", None)
+                params.pop("end_date", None)
                 params["forecast_days"] = PROVIDER_MAX_DAYS
                 response = client.weather_api("https://api.open-meteo.com/v1/forecast", params=params)[0]
                 fallback_used = True
@@ -89,8 +93,10 @@ def fetch_openmeteo_forecast(latitude: float, longitude: float, forecast_days: i
                 raise
 
     daily  = response.Daily()
-    start  = pd.Timestamp(daily.Time(), unit="s", tz="UTC")
-    end    = pd.Timestamp(daily.TimeEnd(), unit="s", tz="UTC")
+    # Shift by the location's UTC offset so dates are local calendar days (timezone="auto")
+    utc_offset = response.UtcOffsetSeconds()
+    start  = pd.Timestamp(daily.Time() + utc_offset, unit="s", tz="UTC")
+    end    = pd.Timestamp(daily.TimeEnd() + utc_offset, unit="s", tz="UTC")
     dates  = pd.date_range(start=start, end=end,
                            freq=pd.Timedelta(seconds=daily.Interval()), inclusive="left")
 
@@ -218,7 +224,7 @@ def run_chatbot():
     print("=" * 60)
     print(f"  Location : {farmer_context['region']}")
     print(f"  Crop     : {farmer_context['crop']}")
-    print(f"  LLM      : NaviGator API (UF) | Model: gpt-5")
+    print(f"  LLM      : NaviGator API (UF) | Model: {LLM_MODEL}")
     print("  Type 'quit' to exit.")
     print("=" * 60)
 
