@@ -7,7 +7,7 @@ Flow:  question → LLM (3 tools bound) → LLM calls 0..n tools
        → tool results fed back → LLM answers
 
 Tools come from agent_tools.py (resolve_location, get_weather_forecast,
-get_soil_profile), in one of two ways:
+get_historical_weather, get_seasonal_forecast, get_soil_profile), in one of two ways:
   local mode (default): called directly as LangChain tools
   --mcp mode          : called through mcp_server.py over stdio (real MCP)
 
@@ -75,6 +75,7 @@ TEST_QUESTIONS = [
     ("location",              "I farm near Nairobi. When should I plant beans?"),
     ("coarse location + soil", "I grow groundnut in Senegal. Is the soil good for it?"),
     ("past date",             "How much rain fell in the middle of June on my farm?"),
+    ("past season vs normal", "Was this year's long rains season on my farm drier than normal?"),
 ]
 
 
@@ -165,7 +166,8 @@ def build_system_prompt(skill_file: str = DEFAULT_SKILL_FILE, rules_file: Option
     """
     parts = [
         "You are AU, an agronomy advisor answering a farmer's question. Apply the Contextual GATE "
-        "skill below to every question. You have tools for location lookup, weather and soil data.",
+        "skill below to every question. You have tools for location lookup, daily weather forecast, past (historical) weather, "
+        "seasonal outlook and soil data.",
         _read_markdown(skill_file),
     ]
     if rules_file:
@@ -284,6 +286,10 @@ def _short(result: dict) -> str:
     if "period" in result:
         p = result["period"]
         return f"{p['days']} days {p['start_date']} → {p['end_date']}, vars={result['variables']}"
+    if "season_total" in result:
+        t, months = result["season_total"], result["months"]
+        return (f"{len(months)} months {months[0]['month']} → {months[-1]['month']}, rainy months "
+                f"{t['percent_of_normal']}% of normal ({t['category']})")
     if "depths_cm" in result:
         return f"depths={result['depths_cm']}, properties={list(result.get('properties', {}))}"
     return "ok"

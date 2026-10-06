@@ -35,7 +35,7 @@ xarray
 eccodes
 
 # ── WSP 3 — ECMWF C3S Seasonal (optional, MODE B only) ───────
-# cdsapi   # uncomment if using CDS seasonal mode
+cdsapi    # ECMWF SEAS5 seasonal forecast (seasonal_tool.py); needs ~/.cdsapirc
 
 # ── WSP 5 — IRI Data Library (seasonal OpenDAP mode) ─────────
 pydap

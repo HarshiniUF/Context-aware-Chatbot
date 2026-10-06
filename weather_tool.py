@@ -200,12 +200,22 @@ def get_weather_forecast(latitude: float,
     }
     description, meta_name = WEATHER_MODELS[model]
 
+    # A variable with no data on any day (e.g. rain probability for past dates) is dropped with a
+    # warning; only fail when nothing is left
+    warnings = []
+    empty = [v for v in variables if all(d[v] is None for d in daily)]
+    if empty:
+        warnings.append(f"No data for {empty} in this period; left out.")
+        variables = [v for v in variables if v not in empty]
+        units = {v: units[v] for v in variables}
+        summary = {v: summary[v] for v in variables}
+        daily = [{k: x for k, x in d.items() if k not in empty} for d in daily]
+    if not variables or not dates:
+        return _error("Open-Meteo returned no values for this period (too far in the past or future).")
     # Open-Meteo accepts dates near the edge of its range but returns nulls there
     missing = sorted({d["date"] for d in daily for v in variables if d[v] is None})
-    if missing and len(missing) == len(dates):
-        return _error("Open-Meteo returned no values for this period (too far in the past or future, "
-                      "or the variable is not archived for these dates).")
-    warnings = [f"No data for {len(missing)} of {len(dates)} days: {missing}"] if missing else []
+    if missing:
+        warnings.append(f"No data for {len(missing)} of {len(dates)} days: {missing}")
 
     return {
         "ok": True,

@@ -3,8 +3,9 @@
 MCP SERVER — agro-context tools
 =============================================================
 
-Exposes the 3 tools from agent_tools.py over the Model Context Protocol:
-  resolve_location, get_weather_forecast, get_soil_profile
+Exposes the 5 tools from agent_tools.py over the Model Context Protocol:
+  resolve_location, get_weather_forecast, get_historical_weather, get_seasonal_forecast,
+  get_soil_profile
 
 Run:
   python mcp_server.py                         # stdio (for MCP clients / tool_agent.py --mcp)
@@ -12,7 +13,8 @@ Run:
   mcp dev mcp_server.py                        # open in the MCP Inspector (needs Node.js)
   python mcp_server.py --self-test             # list tools and call each one in-process
 
-Requires: pip install "mcp[cli]" (v2), ISDASOIL_USERNAME / ISDASOIL_PASSWORD in .env
+Requires: pip install "mcp[cli]" (v2), GEONAMES_USERNAME / ISDASOIL_USERNAME / ISDASOIL_PASSWORD
+in .env, and a Copernicus CDS account in ~/.cdsapirc (seasonal forecast)
 =============================================================
 """
 
@@ -30,7 +32,9 @@ from agent_tools import TOOL_DESCRIPTIONS, TOOL_FUNCTIONS
 
 SERVER_INSTRUCTIONS = (
     "Agricultural context tools. resolve_location turns a place name into coordinates; "
-    "get_weather_forecast and get_soil_profile take those coordinates. "
+    "get_weather_forecast, get_historical_weather, get_seasonal_forecast and get_soil_profile take "
+    "those coordinates. Past weather comes from get_historical_weather, future weather from "
+    "get_weather_forecast. "
     "Soil data covers Africa only."
 )
 
@@ -79,6 +83,8 @@ async def self_test() -> None:
         calls = [
             ("get_weather_forecast", {"latitude": lat, "longitude": lon, "horizon_days": 3,
                                       "variables": ["precipitation", "wind_speed_max"]}),
+            ("get_historical_weather", {"latitude": lat, "longitude": lon, "start_date": "2024-07-01",
+                                        "end_date": "2024-09-30", "variables": ["precipitation"]}),
             ("get_soil_profile", {"latitude": lat, "longitude": lon, "properties": ["ph", "texture"]}),
             ("get_weather_forecast", {"latitude": lat, "longitude": lon, "horizon_days": 99}),  # invalid on purpose
         ]
