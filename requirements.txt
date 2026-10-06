@@ -17,6 +17,9 @@ langchain-openai
 openai
 python-dotenv
 
+# ── MCP server for the agent tools (mcp_server.py) ──────────
+mcp[cli]>=2
+
 # ── WSP 1 — Open-Meteo (also used by WSP 4 NOAA GFS) ────────
 openmeteo-requests
 requests-cache
@@ -32,7 +35,7 @@ xarray
 eccodes
 
 # ── WSP 3 — ECMWF C3S Seasonal (optional, MODE B only) ───────
-# cdsapi   # uncomment if using CDS seasonal mode
+cdsapi    # ECMWF SEAS5 seasonal forecast (seasonal_tool.py); needs ~/.cdsapirc
 
 # ── WSP 5 — IRI Data Library (seasonal OpenDAP mode) ─────────
 pydap

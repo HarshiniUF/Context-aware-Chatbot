@@ -28,7 +28,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from dotenv import load_dotenv
 from langchain_openai import ChatOpenAI
-from wsp_config import get_llm, UNIFIED_PROMPT
+from wsp_config import get_llm, UNIFIED_PROMPT, LLM_MODEL
 
 # ─────────────────────────────────────────────────────────────
 # 1. CONFIGURATION
@@ -339,7 +339,7 @@ def run_chatbot():
     print("=" * 65)
     print(f"  Location : {farmer_context['region']}")
     print(f"  Model    : NOAA GFS (global, via Open-Meteo)")
-    print(f"  LLM      : NaviGator API (UF) | Model: gpt-5")
+    print(f"  LLM      : NaviGator API (UF) | Model: {LLM_MODEL}")
     print("  Type 'quit' to exit.")
     print("=" * 65)
 
