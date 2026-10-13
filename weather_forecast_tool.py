@@ -1,6 +1,6 @@
 """
 =============================================================
-WEATHER TOOL — get_weather_forecast
+WEATHER FORECAST TOOL — get_weather_forecast
 Coordinates, time horizon, variables → Open-Meteo daily forecast
 with units, dates, retrieval time, and model metadata
 =============================================================

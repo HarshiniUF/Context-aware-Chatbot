@@ -48,8 +48,8 @@ from typing import Optional
 
 import requests
 
-from seasonal_tool import WARM_COOL_C, WET_DRY_PERCENT
-from weather_tool import WEATHER_VARIABLES as _ALL_WEATHER_VARIABLES, _error, _summarize
+from seasonal_forecast_tool import WARM_COOL_C, WET_DRY_PERCENT
+from weather_forecast_tool import WEATHER_VARIABLES as _ALL_WEATHER_VARIABLES, _error, _summarize
 
 ARCHIVE_URL = "https://archive-api.open-meteo.com/v1/archive"
 EARLIEST_DATE = date(1940, 1, 2)   # 1940-01-01 comes back partly empty

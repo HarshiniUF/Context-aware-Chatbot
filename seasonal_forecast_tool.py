@@ -1,6 +1,6 @@
 """
 =============================================================
-SEASONAL TOOL — get_seasonal_forecast
+SEASONAL FORECAST TOOL — get_seasonal_forecast
 Coordinates → monthly rainfall and temperature outlook for the
 coming months, compared with the normal climate for those months
 =============================================================

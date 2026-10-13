@@ -21,9 +21,9 @@ from pydantic import Field
 
 from historical_weather_tool import get_historical_weather as _get_historical_weather
 from location_resolver import resolve_location as _resolve_location
-from seasonal_tool import get_seasonal_forecast as _get_seasonal_forecast
+from seasonal_forecast_tool import get_seasonal_forecast as _get_seasonal_forecast
 from soil_tool import get_soil_profile as _get_soil_profile
-from weather_tool import get_weather_forecast as _get_weather_forecast
+from weather_forecast_tool import get_weather_forecast as _get_weather_forecast
 
 WeatherVariable = Literal[
     "precipitation", "precipitation_probability", "precipitation_hours",
@@ -146,10 +146,14 @@ TOOL_DESCRIPTIONS = {
         "rainfall, temperature anomaly, and a wetter/drier/near-normal category). Coarse 1° (~110 km) "
         "regional outlook. The first call after a new monthly forecast may take about a minute.",
     "get_soil_profile":
-        "Soil properties for a location in Africa from iSDAsoil (30 m resolution): texture, "
-        "sand/silt/clay, organic carbon, pH, nitrogen, extractable nutrients (P, K, Ca, Mg, S, Zn, "
-        "Fe, Al), CEC, bulk density, stoniness, bedrock depth, slope and fertility constraints, at "
-        "0-20 and/or 20-50 cm. Values come with 90% uncertainty ranges. These are static soil "
+        "Soil properties for any location, at 0-20 and/or 20-50 cm. In Africa from iSDAsoil (30 m "
+        "resolution): texture, sand/silt/clay, organic carbon, pH, nitrogen, extractable nutrients (P, "
+        "K, Ca, Mg, S, Zn, Fe, Al), CEC, bulk density, stoniness, bedrock depth, slope and fertility "
+        "constraints, with 90% uncertainty ranges. Outside Africa (or where iSDAsoil has no data) it "
+        "falls back to GHR global soil profiles (~10 km): texture, sand/silt/clay, organic carbon, pH, "
+        "nitrogen, CEC, bulk density, plus wilting point, field capacity and available water; the "
+        "nutrients, bedrock depth, slope and fertility constraints are not available there "
+        "(property_errors). metadata.provider says which source answered. These are static soil "
         "properties; for current soil moisture use get_weather_forecast or get_historical_weather (soil_moisture_0_7cm).",
 }
 

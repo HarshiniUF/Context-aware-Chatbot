@@ -33,6 +33,11 @@ When the LLM calls resolve_location (chat and -q modes), the farmer confirms
 the location and the crop before the LLM continues. Questions that need no
 location lookup are answered without any confirmation. --test never asks.
 
+Interactive chat keeps the conversation: each run starts a new chat, and every
+later question continues it (the last 5 questions and answers are sent along).
+A follow-up reuses the confirmed location and crop as defaults, and the farmer
+confirms them again before the weather/soil tools run.
+
 --test writes a Markdown report to test_results/ (questions, tool calls with
 inputs, answers, and old-pipeline answers when --compare is used).
 =============================================================
@@ -48,11 +53,11 @@ import os
 import sys
 import threading
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 from typing import Optional
 
-from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 from langchain_core.tools import StructuredTool
 
 from agent_tools import TOOL_DESCRIPTIONS, TOOL_FUNCTIONS
@@ -62,6 +67,7 @@ from wsp_config import (
 )
 
 MAX_TOOL_ROUNDS = 6
+MAX_HISTORY_TURNS = 5  # earlier question/answer pairs sent with a follow-up
 QUIT_WORDS = ("quit", "exit", "q")
 RESULTS_DIR = "test_results"
 PROJECT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -176,11 +182,16 @@ def build_system_prompt(skill_file: str = DEFAULT_SKILL_FILE, rules_file: Option
     # "Today" is the farm's local date, not the computer's: in the evening in the US it is
     # already the next day in Kenya, and the weather tool returns local dates at the location.
     farm_now = datetime.now(ZoneInfo(DEFAULT_TIMEZONE))
+    last_month = farm_now.replace(day=1) - timedelta(days=1)
     facts = [f"Today's date at the farm ({DEFAULT_TIMEZONE}): {farm_now:%Y-%m-%d} ({farm_now:%A}), "
              f"local time {farm_now:%H:%M}.",
              "Weather tool dates are local calendar days at the requested location, each with its "
              "weekday; use those dates and weekdays exactly as returned. For a location in another "
-             "timezone, its 'today' is the first day of a forecast fetched without start_date."]
+             "timezone, its 'today' is the first day of a forecast fetched without start_date.",
+             f"Last month was {last_month:%B %Y}, and past weather is available up to yesterday. A month "
+             "or season named without a year means its most recent occurrence: for what happened, the "
+             f"latest one that has started (e.g. '{last_month:%B}' = {last_month:%B %Y}); for what will "
+             "happen, the coming one."]
     if use_default_location:
         facts.append(f"The farmer's farm is at {DEFAULT_LOCATION_NAME} "
                      f"(lat {DEFAULT_LATITUDE}, lon {DEFAULT_LONGITUDE}, timezone {DEFAULT_TIMEZONE}) "
@@ -197,8 +208,12 @@ def build_system_prompt(skill_file: str = DEFAULT_SKILL_FILE, rules_file: Option
 class FarmerConfirmation:
     """Terminal confirmation of location + crop for one question."""
 
-    def __init__(self, question: str):
+    def __init__(self, question: str, previous_location: Optional[dict] = None,
+                 previous_crop: Optional[str] = None):
         self.question = question
+        self.previous_location = previous_location  # confirmed earlier in this chat
+        self.previous_crop = previous_crop
+        self.location: Optional[dict] = None         # confirmed for this question
         self.crop_done = False
         self.crop: Optional[str] = None
         self.wait_seconds = 0.0  # time spent waiting for the farmer (excluded from timings)
@@ -213,12 +228,16 @@ class FarmerConfirmation:
     def _pick(result: dict, candidate: dict) -> dict:
         return {**result, **candidate, "ambiguous": False, "candidates": [], "match": "exact"}
 
-    async def review_location(self, args: dict, result: dict, toolbox) -> dict:
+    async def review_location(self, args: dict, result: dict, toolbox, reused: bool = False) -> dict:
         """Show the looked-up location; let the farmer confirm, pick a candidate, or type another place."""
         queried = args.get("place") or f"{args.get('latitude')}, {args.get('longitude')}"
         corrected = False
         while True:
-            print(f"\n   📍 Location check — Claude looked up \"{queried}\":")
+            if reused:
+                print("\n   📍 Location check — same location as earlier in this chat:")
+                reused = False
+            else:
+                print(f"\n   📍 Location check — looked up \"{queried}\" (GeoNames):")
             if result.get("found"):
                 candidates = result.get("candidates") or []
                 if (result.get("ambiguous") or result.get("match") == "approximate") and candidates:
@@ -255,6 +274,7 @@ class FarmerConfirmation:
                           "Use these confirmed coordinates for every weather or soil tool call."}
         print(f"      ✅ Using: {result['name']} ({result['latitude']:.4f}, {result['longitude']:.4f})"
               f" | crop: {self.crop or 'not specified'}")
+        self.location = result
         return result
 
     async def _review_crop(self) -> None:
@@ -265,12 +285,46 @@ class FarmerConfirmation:
         detected = _extract_crop_fallback(self.question)
         if detected:
             reply = await self._input(f"   🌱 Crop: {detected} (from your question) — Enter to confirm, or type the crop: ")
+        elif self.previous_crop:
+            detected = self.previous_crop
+            reply = await self._input(f"   🌱 Crop: {detected} (from earlier in this chat) — Enter to confirm, or type the crop: ")
         else:
             reply = await self._input("   🌱 Crop: not mentioned — type the crop (Enter to skip): ")
         if reply:
             self.crop = _extract_crop_fallback(reply) or reply.strip().capitalize()
         else:
             self.crop = detected
+
+
+class ChatSession:
+    """One interactive chat: earlier questions/answers plus the confirmed location and crop."""
+
+    def __init__(self):
+        self.history: list = []                # last MAX_HISTORY_TURNS HumanMessage / AIMessage pairs
+        self.location: Optional[dict] = None   # last location the farmer confirmed
+        self.crop: Optional[str] = None        # last crop the farmer confirmed
+
+    def facts(self) -> str:
+        """System-prompt section telling the LLM what was confirmed earlier in this chat."""
+        if not (self.location or self.crop):
+            return ""
+        lines = []
+        if self.location:
+            loc = self.location
+            lines.append(f"Location confirmed earlier in this chat: {loc['name']} "
+                         f"(lat {loc['latitude']}, lon {loc['longitude']}). Use it for follow-up "
+                         "questions unless the farmer names another location.")
+        if self.crop:
+            lines.append(f"Crop confirmed earlier in this chat: {self.crop}. Use it for follow-up "
+                         "questions unless the farmer names another crop.")
+        return "\n\n# This Chat\n\n" + "\n".join(lines)
+
+    def remember(self, question: str, answer: str, confirmation: Optional[FarmerConfirmation]) -> None:
+        # final answers only (no tool results); location and crop are kept for the whole chat
+        self.history = (self.history + [HumanMessage(content=question), AIMessage(content=answer)])[-2 * MAX_HISTORY_TURNS:]
+        if confirmation:
+            self.location = confirmation.location or self.location
+            self.crop = confirmation.crop or self.crop
 
 
 # ─────────────────────────────────────────────────────────────
@@ -291,7 +345,11 @@ def _short(result: dict) -> str:
         return (f"{len(months)} months {months[0]['month']} → {months[-1]['month']}, rainy months "
                 f"{t['percent_of_normal']}% of normal ({t['category']})")
     if "depths_cm" in result:
-        return f"depths={result['depths_cm']}, properties={list(result.get('properties', {}))}"
+        source = result.get("metadata", {}).get("provider", "?").split(" (")[0]
+        missing = list(result.get("property_errors", {}))
+        return (f"source={source}, depths={result['depths_cm']}, "
+                f"properties={list(result.get('properties', {}))}"
+                + (f", not available={missing}" if missing else ""))
     return "ok"
 
 
@@ -304,16 +362,18 @@ def _coords_differ(args: dict, location: dict, tolerance_deg: float = 0.05) -> b
 
 
 async def run_agent(question: str, system_prompt: str, toolbox, llm=None, verbose: bool = True,
-                    confirmation: Optional[FarmerConfirmation] = None) -> dict:
+                    confirmation: Optional[FarmerConfirmation] = None, history: list = ()) -> dict:
     """
     Run one question through the tool-calling loop.
     With `confirmation`, every resolve_location result is confirmed by the farmer
-    (location + crop) before the LLM sees it.
+    (location + crop) before the LLM sees it. On a follow-up, a tool call that reuses
+    the location confirmed earlier in the chat is confirmed again before it runs.
+    `history` holds the earlier questions and answers of the chat.
     Returns {"answer": str, "tool_calls": [{"name", "args", "result"}], "rounds": int}.
     """
     base_llm = llm or get_llm()
     llm_with_tools = base_llm.bind_tools(toolbox.specs)
-    messages = [SystemMessage(content=system_prompt), HumanMessage(content=question)]
+    messages = [SystemMessage(content=system_prompt), *history, HumanMessage(content=question)]
     trace = []
 
     for round_no in range(1, MAX_TOOL_ROUNDS + 1):
@@ -339,6 +399,15 @@ async def run_agent(question: str, system_prompt: str, toolbox, llm=None, verbos
         # weather/soil calls made in the same turn used coordinates the LLM guessed before the
         # location was confirmed; if they point elsewhere, don't run them — ask for a re-call
         confirmed = [r for r in results.values() if r.get("confirmed_by_farmer")]
+        # follow-up in a chat: the LLM reused the earlier location without looking it up →
+        # the farmer confirms it (and the crop) again before the weather/soil calls run
+        reconfirmed = None
+        prev = confirmation and not confirmation.location and confirmation.previous_location
+        if prev and not confirmed and any("latitude" in c["args"] and not _coords_differ(c["args"], prev)
+                                          for c in response.tool_calls if c["id"] not in results):
+            reconfirmed = await confirmation.review_location({"place": prev["name"]}, prev, toolbox, reused=True)
+            if reconfirmed.get("confirmed_by_farmer"):
+                confirmed = [reconfirmed]
         others = []
         for call in (c for c in response.tool_calls if c["id"] not in results):
             far = confirmed and all(_coords_differ(call["args"], loc) for loc in confirmed)
@@ -353,6 +422,9 @@ async def run_agent(question: str, system_prompt: str, toolbox, llm=None, verbos
         # the remaining tool calls in this turn are independent → run them in parallel
         for call, result in zip(others, await asyncio.gather(*(toolbox.call(c["name"], c["args"]) for c in others))):
             show(call, result)
+            if reconfirmed and reconfirmed.get("confirmed_by_farmer"):
+                result = {**result, "farmer_confirmed": {"location": reconfirmed["name"],
+                                                         "crop": reconfirmed["farmer_crop"]}}
             results[call["id"]] = result
 
         for call in response.tool_calls:
@@ -425,15 +497,21 @@ def _in_daemon_thread(fn, *args) -> asyncio.Future:
 # ─────────────────────────────────────────────────────────────
 # CLI
 # ─────────────────────────────────────────────────────────────
-async def ask(question: str, system_prompt: str, toolbox, compare: bool = False, confirm: bool = False) -> dict:
+async def ask(question: str, system_prompt: str, toolbox, compare: bool = False, confirm: bool = False,
+              session: Optional[ChatSession] = None) -> dict:
+    """Answer one question. With `session`, it continues that chat (history, location, crop)."""
     print(f"\n❓ {question}")
     record = {"question": question, "tool_calls": [], "answer": None, "error": None,
               "seconds": None, "old_answer": None}
-    confirmation = FarmerConfirmation(question) if confirm else None
+    confirmation = (FarmerConfirmation(question, session and session.location, session and session.crop)
+                    if confirm else None)
     start = time.time()
     try:
-        out = await run_agent(question, system_prompt, toolbox, confirmation=confirmation)
+        out = await run_agent(question, system_prompt + (session.facts() if session else ""), toolbox,
+                              confirmation=confirmation, history=session.history if session else ())
         record.update(answer=out["answer"], tool_calls=out["tool_calls"])
+        if session:
+            session.remember(question, out["answer"], confirmation)
     except Exception as e:
         record["error"] = f"{type(e).__name__}: {e}"
     waited = confirmation.wait_seconds if confirmation else 0.0
@@ -509,13 +587,16 @@ async def main_async(args) -> None:
             if records:
                 print(f"\n📄 Report saved: {write_report(records, labels, mode, system_prompt, prompt_label)}")
         else:
-            print("Tool agent — the LLM decides which tools to call. Type 'quit' to exit.")
+            print("Tool agent — the LLM decides which tools to call. New chat started; "
+                  "type 'quit' to exit.")
+            session = ChatSession()
             while True:
                 question = (await asyncio.to_thread(input, "\n🌾 You: ")).strip()
                 if question.lower() in QUIT_WORDS:
                     break
                 if question:
-                    await ask(question, system_prompt, toolbox, args.compare, confirm=not args.no_confirm)
+                    await ask(question, system_prompt, toolbox, args.compare, confirm=not args.no_confirm,
+                              session=session)
 
 
 def main():

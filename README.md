@@ -75,6 +75,7 @@ Crop and date are both extracted via LLM (`extract_crop_and_date_json()` in
 | Daily forecast | Open-Meteo (free, ~1km, 1–16 days) | Rain timing, peak/total rainfall | `wsp1_openmeteo.py` |
 | Seasonal forecast | ECMWF SEAS5 via Copernicus CDS | Tercile probabilities, monthly rainfall category | inline in `wsp_unified_forecast.py` (`fetch_seasonal_forecast`) |
 | Soil | iSDAsoil API (Africa, 30m resolution) | Organic carbon, N, pH, texture, risk flags | `wsp_soil_isda.py`, `wsp_soil_integration.py` |
+| Soil (agent tool, global) | iSDAsoil in Africa; eGHR global DSSAT profiles (ISRIC SoilGrids + HC27, ~10 km) elsewhere or when iSDAsoil has no data | Texture, sand/silt/clay, pH, CEC, bulk density, wilting point / field capacity / available water (eGHR); + nutrients, bedrock, slope, FCC (iSDAsoil only) | `soil_tool.py` |
 | Farmer profile | User input / hardcoded defaults | Crop, scale, region | `wsp_unified_forecast.py` |
 
 **Note:** `DAILY_FORECAST_WSP` and `SEASONAL_FORECAST_WSP` in `wsp_config.py` also list
@@ -117,6 +118,26 @@ CDS_API_KEY=your-cds-api-key             # for ECMWF SEAS5 seasonal forecast
 Optional: `USE_UTC_DATES=true` to anchor "today" to UTC instead of local system time
 (see `get_today_datetime()` in `wsp_config.py`).
 
+### Global soil data (eGHR fallback for `soil_tool.py`)
+Outside Africa, or where iSDAsoil returns no data, `get_soil_profile` reads local eGHR
+files. They are ~4 GB and gitignored, so copy them into the project folder:
+```
+soil/GHR_cleaned_2.tif   ← lat/lon → grid-cell id (global, 5 arc-min)
+soil/GHR.db              ← SQLite profile_map(id, profile): grid-cell id → profile id
+eGHR/<CC>.SOL            ← DSSAT soil profiles, one file per country code (FR.SOL, US.SOL, …)
+```
+To keep them elsewhere, set `GHR_SOIL_DIR=/path/containing/soil_and_eGHR` in `.env`.
+Needs `rasterio` (in `requirements.txt`).
+
+Known limits:
+- `.SOL` files for CA, KZ, MM, TM, UZ, TJ, GE, IL, DZ, TD, ZW are not in the current copy;
+  points there return "no GHR profile file for this country".
+- In eGHR, organic carbon and nitrogen are generic HC27 class values (3–13 distinct values
+  per country), not site-specific; texture, pH, CEC, bulk density and water limits vary by
+  location. Stone content is missing. The tool output says so in `metadata.notes`.
+- Resolution is ~10 km: a regional typical soil, not field-level. Values are
+  thickness-weighted averages of the profile layers over 0-20 / 20-50 cm.
+
 ### Switching providers
 ```python
 # wsp_config.py
@@ -136,6 +157,8 @@ wsp1_openmeteo.py          ← daily forecast provider (Open-Meteo)
 wsp3_ecmwf.py              ← ECMWF open-data + CDS seasonal fetchers
 wsp_soil_isda.py           ← iSDAsoil API client, texture classification, risk interpretation
 wsp_soil_integration.py    ← formats soil data into prompt-ready variables
+soil_tool.py               ← get_soil_profile agent tool: iSDAsoil, eGHR global fallback
+soil/, eGHR/               ← local eGHR soil data (gitignored, see Setup)
 other_wsp/                 ← parked prototypes (CHIRPS, NOAA CPC, IRI) — not wired into root
 requirements.txt           ← dependencies (see file for per-provider install notes)
 DOCS_DATE_POLICY.md        ← date-anchoring and provider-fetch logic

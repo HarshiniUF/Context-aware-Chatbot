@@ -35,7 +35,8 @@ SERVER_INSTRUCTIONS = (
     "get_weather_forecast, get_historical_weather, get_seasonal_forecast and get_soil_profile take "
     "those coordinates. Past weather comes from get_historical_weather, future weather from "
     "get_weather_forecast. "
-    "Soil data covers Africa only."
+    "Soil data is detailed in Africa (iSDAsoil, 30 m) and coarser elsewhere (GHR global profiles, "
+    "~10 km, no extractable nutrients)."
 )
 
 # All tools only read public/external data

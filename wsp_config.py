@@ -682,6 +682,9 @@ cultural values, indigenous knowledge, autonomy, and relationship to land. Respe
 advice trusted; ignoring them breaks trust. If goals are unstated, assume a balanced aim of yield,
 cost control, sustainability, and livelihood protection.
 
+
+
+                                                  
 FARMER'S QUESTION: "{user_question}"
 
 ══════════════════════════════════════════════════════════════════════

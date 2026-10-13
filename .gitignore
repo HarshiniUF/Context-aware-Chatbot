@@ -16,3 +16,7 @@ venv/
 
 # OS
 .DS_Store
+
+# GHR global soil data (~2 GB, local only; see soil_tool.py)
+soil/
+eGHR/
