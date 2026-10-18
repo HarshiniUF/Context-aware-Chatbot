@@ -15,7 +15,7 @@ All tools return a JSON-serializable dict and never raise on bad data
 =============================================================
 """
 
-from typing import Annotated, Any, List, Literal, Optional
+from typing import Annotated, Any, List, Literal, Optional, get_args
 
 from pydantic import Field
 
@@ -110,9 +110,12 @@ def get_soil_profile(
     longitude: Longitude,
     depths: Annotated[Optional[List[SoilDepth]], Field(
         description="Soil depths in cm. Only '0-20' and '20-50' exist. Default: ['0-20'].")] = None,
-    properties: Annotated[Optional[List[SoilProperty]], Field(
-        description="Soil properties to return. Default: texture, sand, silt, clay, "
-                    "organic_carbon, fertility_constraints.")] = None,
+    # Plain strings, not the SoilProperty Literal: one unsupported name (e.g. "drainage") must not
+    # fail schema validation for the whole call; soil_tool reports it in property_errors instead
+    properties: Annotated[Optional[List[str]], Field(
+        description="Soil properties to return, from: " + ", ".join(get_args(SoilProperty)) + ". "
+                    "Default: texture, sand, silt, clay, organic_carbon, fertility_constraints. "
+                    "Other names are not available and come back in property_errors.")] = None,
 ) -> dict[str, Any]:
     # The SoilGrids WRB soil-type lookup is slow (10-60 s) and often times out, so it is skipped here
     return _get_soil_profile(latitude, longitude, depths=depths, properties=properties,

@@ -256,21 +256,36 @@ def get_soil_profile(latitude: float,
     bad_depths = [d for d in depths if d not in VALID_DEPTHS]
     if bad_depths:
         return _error(f"Unsupported depths {bad_depths}. Only {VALID_DEPTHS} (cm) are available.")
-    requested = properties or DEFAULT_PROPERTIES
+    requested = list(dict.fromkeys(properties or DEFAULT_PROPERTIES))
+    # Unknown names (e.g. "drainage") are reported per property instead of failing the whole call
+    known_names = set(SOIL_PROPERTY_ALIASES) | set(SOIL_PROPERTY_ALIASES.values())
+    unknown_errors = {p: f"not a soil property this tool provides. Valid: {sorted(SOIL_PROPERTY_ALIASES)}"
+                      for p in requested if p not in known_names}
+    requested = [p for p in requested if p in known_names]
+    if not requested:
+        return _error(f"Unknown properties {sorted(unknown_errors)}. Valid: {sorted(SOIL_PROPERTY_ALIASES)}",
+                      input_error=True, property_errors=unknown_errors)
 
     if _in_africa(latitude, longitude):
         result = _get_isda_profile(latitude, longitude, depths, requested, include_soil_type)
         if result["ok"] or result.get("input_error"):
-            return result
+            return _with_unknown(result, unknown_errors)
         isda_error = result["error"].rstrip(".")
     else:
         isda_error = "outside iSDAsoil coverage (Africa only)"
 
     result = _get_ghr_profile(latitude, longitude, depths, requested, include_soil_type, isda_error)
     if result["ok"] or result.get("input_error"):
-        return result
+        return _with_unknown(result, unknown_errors)
     return _error(f"iSDAsoil: {isda_error}. eGHR fallback: {result['error']}",
-                  property_errors=result.get("property_errors", {}))
+                  property_errors={**result.get("property_errors", {}), **unknown_errors})
+
+
+def _with_unknown(result: dict, unknown_errors: dict) -> dict:
+    """Add the unknown-property messages to a result's property_errors."""
+    if unknown_errors:
+        result["property_errors"] = {**result.get("property_errors", {}), **unknown_errors}
+    return result
 
 
 # ─────────────────────────────────────────────────────────────
