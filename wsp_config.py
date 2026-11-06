@@ -614,9 +614,10 @@ DAILY_FORECAST_WSP = "openmeteo"      # Options: "openmeteo", "noaacpc", "ecmwf"
 SEASONAL_FORECAST_WSP = "ecmwf"       # Options: "noaacpc", "openmeteo", "ecmwf", "chirps", "iri"
 
 # ─── NaviGator LLM (shared across all WSPs) ───
-# Models this NaviGator team can use: claude-4.6-sonnet, claude-4.7-opus, claude-4-sonnet,
-# gpt-5, gpt-4.1, gpt-4o. Override per run with LLM_MODEL=<name> in .env or the shell.
-LLM_MODEL = os.getenv("LLM_MODEL", "claude-4.6-sonnet")
+# Claude models this NaviGator team can use: claude-sonnet-5, claude-4.7-opus, claude-4.6-sonnet,
+# claude-4-sonnet (plus gpt-4o ... gpt-6, llama-3.1-70b-instruct). Override per run with
+# LLM_MODEL=<name> in .env or the shell.
+LLM_MODEL = os.getenv("LLM_MODEL", "claude-sonnet-5")
 
 def get_llm():
     return ChatOpenAI(

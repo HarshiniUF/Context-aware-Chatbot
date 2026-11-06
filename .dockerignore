@@ -1,0 +1,20 @@
+# Secrets — passed at runtime with --env-file
+.env
+.env.*
+
+# Large soil data — mounted at runtime
+soil/
+eGHR/
+
+# Local environment / caches
+venv/
+__pycache__/
+*.pyc
+.cache/
+*.sqlite
+test_results/
+
+# Tooling
+.git/
+.vscode/
+.DS_Store

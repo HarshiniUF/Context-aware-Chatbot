@@ -12,6 +12,7 @@ get_historical_weather, get_seasonal_forecast, get_soil_profile), in one of two 
   --mcp mode          : called through mcp_server.py over stdio (real MCP)
 
 System prompt = SKILL.md (Contextual GATE skill, used for every question)
+               + the farmer-facing language and format rules (ANSWER_FORMAT)
                + optional tool-use instructions (--rules FILE)
                + today's date and the default farm location.
 Compare runs with and without --rules to see the effect of the instructions.
@@ -83,6 +84,27 @@ TEST_QUESTIONS = [
     ("past date",             "How much rain fell in the middle of June on my farm?"),
     ("past season vs normal", "Was this year's long rains season on my farm drier than normal?"),
 ]
+
+# Kept in code rather than in SKILL.md, so a new version of the skill file
+# doesn't drop how this chatbot talks to farmers.
+ANSWER_FORMAT = """# Language and Format
+
+Write for a farmer, not for a scientist.
+
+- Write in short, plain paragraphs. Do not use tables, headings, horizontal
+  rules, or bold text, and avoid bullet lists unless the farmer asks for steps.
+- Use simple, everyday words. Avoid technical terms such as "anomaly",
+  "reanalysis", "ET0", "evapotranspiration", "percentile", "normal period",
+  "ensemble", or "1991–2020". Say "more rain than usual for this time of year"
+  rather than "158% of normal".
+- Use only the few numbers that help the decision, rounded and in everyday
+  terms: "about 275 mm, roughly half again as much as usual" rather than
+  "274.6 mm (+100.7 mm, +58%)". Do not list day-by-day values.
+- Do not name data sources, models, or tools.
+- Never show the decision frame, GATE domains, sensitivity scores, weights or
+  hard-gate checks; they are internal reasoning.
+- Explain what the weather or soil means for the farm and what to do about it,
+  not just what the data shows."""
 
 
 # ─────────────────────────────────────────────────────────────
@@ -166,7 +188,7 @@ def _read_markdown(path: str) -> str:
 def build_system_prompt(skill_file: str = DEFAULT_SKILL_FILE, rules_file: Optional[str] = None,
                         use_default_location: bool = True) -> str:
     """
-    SKILL.md (how to reason) + optional tool-use instructions + runtime facts.
+    SKILL.md (how to reason) + answer format + optional tool-use instructions + runtime facts.
     The opening lines are the same with or without --rules, so the only
     difference between the two runs is the instructions themselves.
     """
@@ -175,6 +197,7 @@ def build_system_prompt(skill_file: str = DEFAULT_SKILL_FILE, rules_file: Option
         "skill below to every question. You have tools for location lookup, daily weather forecast, past (historical) weather, "
         "seasonal outlook and soil data.",
         _read_markdown(skill_file),
+        ANSWER_FORMAT,
     ]
     if rules_file:
         parts.append("# Tool-Use Instructions\n\n" + _read_markdown(rules_file))

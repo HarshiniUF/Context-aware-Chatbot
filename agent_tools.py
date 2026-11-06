@@ -149,7 +149,8 @@ TOOL_DESCRIPTIONS = {
         "rainfall, temperature anomaly, and a wetter/drier/near-normal category). Coarse 1° (~110 km) "
         "regional outlook. The first call after a new monthly forecast may take about a minute.",
     "get_soil_profile":
-        "Soil properties for any location, at 0-20 and/or 20-50 cm. In Africa from iSDAsoil (30 m "
+        "Soil properties for any location, at 0-20 and/or 20-50 cm. The farmer's 'soil type' is the "
+        "texture class (e.g. sandy loam, clay). In Africa from iSDAsoil (30 m "
         "resolution): texture, sand/silt/clay, organic carbon, pH, nitrogen, extractable nutrients (P, "
         "K, Ca, Mg, S, Zn, Fe, Al), CEC, bulk density, stoniness, bedrock depth, slope and fertility "
         "constraints, with 90% uncertainty ranges. Outside Africa (or where iSDAsoil has no data) it "
