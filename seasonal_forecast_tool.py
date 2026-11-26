@@ -23,6 +23,10 @@ Facts verified against the downloaded GRIB files:
   - A new forecast is published on the 13th of each month; the global
     file (~3 MB, ~40-60 s to download) is cached per start month, so
     later calls for any location are instant.
+  - The CDS request queue is sometimes very slow (30+ minutes). A call waits
+    at most DOWNLOAD_TIMEOUT_S; after that it answers from the newest cached
+    forecast (up to MAX_FALLBACK_AGE_MONTHS old, with a warning) while the
+    download carries on in the background for the next call.
 
 Never raises: returns {"ok": False, "error": ...} on failure.
 
@@ -41,8 +45,11 @@ Output (dict):
 """
 
 import calendar
+import glob
 import os
 import tempfile
+import threading
+import time
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -54,6 +61,12 @@ HINDCAST_PERIOD = "1993-2016"      # SEAS5 re-forecast years behind the climate 
 RELEASE_DAY = 13                   # C3S publishes the new forecast on the 13th of each month
 LEADS = ["1", "2", "3", "4", "5", "6"]
 MAX_MONTHS_AHEAD = 6
+DOWNLOAD_TIMEOUT_S = 90            # normal download is 40-60 s; the CDS queue can take far longer
+MAX_FALLBACK_AGE_MONTHS = 3        # an older cached forecast still covers the coming months
+STALE_PART_AGE_S = 3600            # leftover .part files from killed runs are removed after this
+
+_downloads: dict = {}              # (year, month) → {"thread", "error"} for downloads in progress
+_downloads_lock = threading.Lock()
 
 # Category thresholds (simple, transparent rules on the ensemble mean — not calibrated probabilities)
 WET_DRY_PERCENT = 20       # ≥ +20% of normal rainfall → wetter, ≤ -20% → drier
@@ -76,6 +89,16 @@ def _cache_path(year: int, month: int) -> str:
     return os.path.join(CACHE_DIR, f"seas5_{year}{month:02d}_tp_t2m.grib")
 
 
+def _remove_stale_parts() -> None:
+    """Delete half-downloaded files left behind when a process was killed mid-download."""
+    for part in glob.glob(os.path.join(CACHE_DIR, "*.part")):
+        try:
+            if time.time() - os.path.getmtime(part) > STALE_PART_AGE_S:
+                os.remove(part)
+        except OSError:
+            pass
+
+
 def _download(year: int, month: int) -> str:
     """Download (once) the global forecast + hindcast climate mean for one start month."""
     path = _cache_path(year, month)
@@ -84,6 +107,7 @@ def _download(year: int, month: int) -> str:
     import cdsapi  # imported here so the other tools work without CDS installed
 
     os.makedirs(CACHE_DIR, exist_ok=True)
+    _remove_stale_parts()
     fd, tmp = tempfile.mkstemp(dir=CACHE_DIR, suffix=".part")
     os.close(fd)
     try:
@@ -102,6 +126,52 @@ def _download(year: int, month: int) -> str:
         if os.path.exists(tmp):
             os.remove(tmp)
     return path
+
+
+def _download_within(year: int, month: int, deadline: float) -> str:
+    """
+    _download() with a time limit. The download runs in a background thread; if it is not done
+    by `deadline` this raises TimeoutError, and the thread keeps going so a later call finds the
+    file cached. Only one download per start month runs at a time.
+    """
+    path = _cache_path(year, month)
+    if os.path.exists(path) and os.path.getsize(path) > 0:
+        return path
+    with _downloads_lock:
+        job = _downloads.get((year, month))
+        if job is None or not job["thread"].is_alive():
+            job = {"error": None}
+
+            def run(job=job):
+                try:
+                    _download(year, month)
+                except Exception as e:
+                    job["error"] = e
+                finally:
+                    with _downloads_lock:
+                        _downloads.pop((year, month), None)
+
+            # daemon: an unfinished download never keeps the program from exiting
+            job["thread"] = threading.Thread(target=run, daemon=True, name=f"seas5-{year}{month:02d}")
+            _downloads[(year, month)] = job
+            job["thread"].start()
+    job["thread"].join(timeout=max(0.0, deadline - time.monotonic()))
+    if job["thread"].is_alive():
+        raise TimeoutError(f"still downloading after {DOWNLOAD_TIMEOUT_S} s (continues in the background)")
+    if job["error"] is not None:
+        raise job["error"]
+    return path
+
+
+def _newest_cached(now: datetime) -> Optional[tuple]:
+    """Newest cached forecast file no older than MAX_FALLBACK_AGE_MONTHS: (path, (year, month))."""
+    year, month = now.year, now.month
+    for _ in range(MAX_FALLBACK_AGE_MONTHS + 1):
+        path = _cache_path(year, month)
+        if os.path.exists(path) and os.path.getsize(path) > 0:
+            return path, (year, month)
+        year, month = (year - 1, 12) if month == 1 else (year, month - 1)
+    return None
 
 
 def _read_point(path: str, latitude: float, longitude: float) -> tuple:
@@ -166,13 +236,26 @@ def get_seasonal_forecast(latitude: float, longitude: float, months_ahead: int =
         return _error(f"months_ahead must be an integer from 1 to {MAX_MONTHS_AHEAD}")
 
     # ── Get the newest available forecast (cached per start month) ──
-    path, start, failures = None, None, []
+    path, start, failures, notes = None, None, [], []
+    deadline = time.monotonic() + DOWNLOAD_TIMEOUT_S
     for year, month in _start_months(retrieved_at):
         try:
-            path, start = _download(year, month), (year, month)
+            path, start = _download_within(year, month, deadline), (year, month)
+            if failures:
+                notes.append(f"This month's seasonal forecast is not available yet, so this is the "
+                             f"forecast issued in {calendar.month_name[month]} {year}. "
+                             f"Download problem: {'; '.join(failures)}")
             break
         except Exception as e:
             failures.append(f"{year}-{month:02d}: {type(e).__name__}: {str(e)[:200]}")
+    if path is None:
+        # newest forecast not available in time → an older cached one still covers the coming months
+        cached = _newest_cached(retrieved_at)
+        if cached:
+            path, start = cached
+            notes.append(f"The newest seasonal forecast could not be downloaded in time, so this is the "
+                         f"forecast issued in {calendar.month_name[start[1]]} {start[0]}. "
+                         f"Download problem: {'; '.join(failures)}")
     if path is None:
         return _error("Could not download the ECMWF seasonal forecast from the Copernicus CDS "
                       f"(check ~/.cdsapirc). Tried: {'; '.join(failures)}")
@@ -226,8 +309,8 @@ def get_seasonal_forecast(latitude: float, longitude: float, months_ahead: int =
         "season_total": {"months": [x["month"] for x in rainy], "forecast_mm": round(total_fc, 1),
                          "normal_mm": round(total_nm, 1), "percent_of_normal": total_pct,
                          "category": total_cat},
-        "warnings": ([f"Only {len(months)} month(s) available from this forecast (requested {months_ahead})."]
-                     if len(months) < months_ahead else []),
+        "warnings": notes + ([f"Only {len(months)} month(s) available from this forecast (requested {months_ahead})."]
+                             if len(months) < months_ahead else []),
         "metadata": {
             "provider": "ECMWF SEAS5 via Copernicus Climate Data Store",
             "system": SYSTEM,

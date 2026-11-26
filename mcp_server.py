@@ -3,7 +3,7 @@
 MCP SERVER — agro-context tools
 =============================================================
 
-Exposes the 5 tools from agent_tools.py over the Model Context Protocol:
+Exposes the 6 tools from agent_tools.py over the Model Context Protocol:
   resolve_location, get_weather_forecast, get_historical_weather, get_seasonal_forecast,
   get_soil_profile
 
